@@ -24,8 +24,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
+    Choice,
     HealthResponse,
+    ModelCard,
     ModelList,
+    ResponseMessage,
+    Usage,
 )
 
 MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
@@ -56,72 +60,73 @@ def health() -> HealthResponse:
 
 
 # ---------------------------------------------------------------------------
-# GET /v1/models  -- TODO
+# GET /v1/models
 # ---------------------------------------------------------------------------
 @app.get("/v1/models", response_model=ModelList)
 def list_models() -> ModelList:
-    """List the served model id(s).
-
-    Contract (OpenAI-compatible):
-      response body: {"object": "list", "data": [ {ModelCard}, ... ]}
-      each ModelCard has: id (== MODEL_ID), object == "model", created (unix
-      seconds), owned_by.
-    Week 2 serves exactly one model, so data has one entry: MODEL_ID.
-
-    Build a ModelList from schemas.py and return it. Use int(time.time()) for
-    created.
-    """
-    # TODO: return a ModelList whose single ModelCard.id == MODEL_ID
-    raise NotImplementedError("implement GET /v1/models")
+    """List the served model id(s)."""
+    card = ModelCard(
+        id=MODEL_ID,
+        object="model",
+        created=int(time.time()),
+        owned_by="local",
+    )
+    return ModelList(object="list", data=[card])
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/chat/completions  -- TODO (non-streaming first)
+# POST /v1/chat/completions (non-streaming)
 # ---------------------------------------------------------------------------
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 def chat_completions(req: ChatCompletionRequest) -> ChatCompletionResponse:
-    """Run the model over the messages and return an OpenAI-compatible completion.
-
-    Contract (non-streaming, the week-2 target):
-      request:  ChatCompletionRequest (model, messages[], max_tokens, temperature)
-      response: ChatCompletionResponse with
-        id            a unique string, e.g. "chatcmpl-" + uuid4().hex
-        object        "chat.completion"
-        created       int(time.time())
-        model         req.model (echo it back today; the reference rejects
-                        unknown ids with a 400 model_not_found - match that
-                        behaviour once your served id is stable, because the
-                        consumer's client checks the id character for character)
-        choices[0]    Choice(message=ResponseMessage(role="assistant",
-                        content=<generated text>), finish_reason="stop" or "length")
-        usage         Usage(prompt_tokens, completion_tokens, total_tokens),
-                        all non-negative and total == prompt + completion
-
-    Suggested steps:
-      1. Build the prompt with the chat template:
-           input_ids = tokenizer.apply_chat_template(
-               [m.model_dump() for m in req.messages],
-               add_generation_prompt=True, return_tensors="pt")
-      2. prompt_tokens = input_ids.shape[1]
-      3. Generate (no_grad, do_sample based on temperature > 0):
-           out = model.generate(input_ids, max_new_tokens=req.max_tokens)
-      4. new_tokens = out[0][prompt_tokens:]; completion_tokens = len(new_tokens)
-      5. text = tokenizer.decode(new_tokens, skip_special_tokens=True)
-      6. finish_reason = "length" if completion_tokens >= req.max_tokens else "stop"
-      7. Assemble and return the ChatCompletionResponse.
-
-    Generation blocks the event loop this week. That is acceptable: week 3's
-    engine owns concurrency. Name it, do not solve it here.
-    """
-    # TODO: implement non-streaming chat completion per the contract above
-    raise NotImplementedError("implement POST /v1/chat/completions")
+    """Run the model over the messages and return an OpenAI-compatible completion."""
+    messages = [m.model_dump(exclude_none=True) for m in req.messages]
+    prompt_text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    inputs = tokenizer(prompt_text, return_tensors="pt").to("cpu")
+    input_ids = inputs["input_ids"]
 
 
-# ---------------------------------------------------------------------------
-# Streaming is a DELTA STEP, not required for the green check. See the README.
-# When you add it: same route, if req.stream is True return a
-# StreamingResponse of Server-Sent Events. Each event is
-#   data: {chat.completion.chunk with choices[0].delta.content}\n\n
-# and the stream ends with the literal line
-#   data: [DONE]\n\n
-# ---------------------------------------------------------------------------
+    prompt_tokens = int(input_ids.shape[1])
+
+    
+    max_tokens = req.max_tokens if req.max_tokens is not None else 128
+    do_sample = bool(req.temperature is not None and req.temperature > 0)
+
+    gen_kwargs = {
+        "max_new_tokens": max_tokens,
+        "do_sample": do_sample,
+    }
+    if do_sample and req.temperature is not None:
+        gen_kwargs["temperature"] = float(req.temperature)
+
+    with torch.no_grad():
+        out = model.generate(input_ids, **gen_kwargs)
+
+    new_tokens = out[0][prompt_tokens:]
+    completion_tokens = len(new_tokens)
+    text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+    finish_reason = "length" if completion_tokens >= max_tokens else "stop"
+
+    return ChatCompletionResponse(
+        id=f"chatcmpl-{uuid.uuid4().hex}",
+        object="chat.completion",
+        created=int(time.time()),
+        model=req.model,
+        choices=[
+            Choice(
+                index=0,
+                message=ResponseMessage(role="assistant", content=text),
+                finish_reason=finish_reason,
+            )
+        ],
+        usage=Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        ),
+    )
