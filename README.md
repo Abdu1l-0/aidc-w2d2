@@ -43,3 +43,5 @@ curl -s http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"Qwen/Qwen2.5-0.5B-Instruct","messages":[{"role":"user","content":"Say hello in one word."}],"max_tokens":16}'
 ```
+# 4. Deliverable
+<img width="807" height="115" alt="image" src="https://github.com/user-attachments/assets/b9e07a8d-5cdb-4b7d-ab22-0cc70dc1092a" />
