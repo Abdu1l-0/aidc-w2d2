@@ -173,6 +173,52 @@ def chat_completions(req: ChatCompletionRequest):
         out = model.generate(**gen_kwargs)
 
     # 4. Get generated tokens and decode to text
+# GET /v1/models
+# ---------------------------------------------------------------------------
+@app.get("/v1/models", response_model=ModelList)
+def list_models() -> ModelList:
+    """List the served model id(s)."""
+    card = ModelCard(
+        id=MODEL_ID,
+        object="model",
+        created=int(time.time()),
+        owned_by="local",
+    )
+    return ModelList(object="list", data=[card])
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/chat/completions (non-streaming)
+# ---------------------------------------------------------------------------
+@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+def chat_completions(req: ChatCompletionRequest) -> ChatCompletionResponse:
+    """Run the model over the messages and return an OpenAI-compatible completion."""
+    messages = [m.model_dump(exclude_none=True) for m in req.messages]
+    prompt_text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    inputs = tokenizer(prompt_text, return_tensors="pt").to("cpu")
+    input_ids = inputs["input_ids"]
+
+
+    prompt_tokens = int(input_ids.shape[1])
+
+    
+    max_tokens = req.max_tokens if req.max_tokens is not None else 128
+    do_sample = bool(req.temperature is not None and req.temperature > 0)
+
+    gen_kwargs = {
+        "max_new_tokens": max_tokens,
+        "do_sample": do_sample,
+    }
+    if do_sample and req.temperature is not None:
+        gen_kwargs["temperature"] = float(req.temperature)
+
+    with torch.no_grad():
+        out = model.generate(input_ids, **gen_kwargs)
+
     new_tokens = out[0][prompt_tokens:]
     completion_tokens = len(new_tokens)
     text = tokenizer.decode(new_tokens, skip_special_tokens=True)
@@ -181,6 +227,8 @@ def chat_completions(req: ChatCompletionRequest):
     finish_reason = "length" if completion_tokens >= req.max_tokens else "stop"
 
     # 6. Return response
+    finish_reason = "length" if completion_tokens >= max_tokens else "stop"
+
     return ChatCompletionResponse(
         id=f"chatcmpl-{uuid.uuid4().hex}",
         object="chat.completion",
@@ -198,4 +246,5 @@ def chat_completions(req: ChatCompletionRequest):
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
         ),
+    )
     )
