@@ -114,3 +114,32 @@ GREEN CHECK: PASS
 - **Final image size (code + CPU torch, no weights baked in):** about **1200 MB**
 - **If you `COPY . .` before installing requirements, how many of your next ten code edits will re-run `pip install`?** **with every run**
 - **After a slim pass (right base, `.dockerignore`, no pip cache), the image will shrink from:** **1200 MB to 800 MB**
+
+## Day 4: GPU Image & Hardware Fallback (W2D4)
+
+### Overview
+Built a unified GPU container image based on CUDA 12.4 runtime that dynamically leverages NVIDIA GPUs when available while gracefully falling back to CPU execution without crashing.
+
+### Steps
+1. **Define `Dockerfile.gpu`**: Authored a CUDA-based runtime image (`nvidia/cuda:12.4.1-runtime-ubuntu22.04`) containing Python 3.11, PyTorch, and compilation tooling for dynamic GPU kernels.
+2. **Validate CPU Fallback**: Ran the container isolated without GPU flags to confirm the `/health` endpoint responds with HTTP `200` on CPU.
+3. **Execute GPU Probe**: Ran `app/generate_probe.py` with GPU pass-through (`--gpus all`) to benchmark inference throughput and export metrics.
+4. **Publish Image**: Pushed `abdul1ah/aidc-serving:gpu-v1` to Docker Hub.
+5. **Run Verifier**: Executed `./verify.sh` to validate the three-part Tier-0 green check.
+
+### Deliverables
+* `Dockerfile.gpu`: CUDA runtime container definition with CPU fallback support.
+* `app/generate_probe.py`: Device-agnostic inference probe and timing script.
+* `gpu_evidence.json`: Benchmark artifact confirming CUDA activation and tokens/sec throughput.
+* `abdul1ah/aidc-serving:gpu-v1`: Published container image on Docker Hub.
+
+### Prediction Card: W2D4 GPU & CPU Fallback
+
+* **Health Endpoint Status:**
+  On your GPU-less laptop, the GPU image's container will answer `/health` with status **`200 OK`** (it uses the CPU fallback).
+
+* **Inference Throughput (128-token generation):**
+  Tokens per second for a 128-token generation: on your laptop CPU about **`4–6 tok/s`**; on the Colab T4 / Local GPU about **`56 tok/s`**.
+
+* **Speedup Ratio:**
+  The ratio of GPU (T4 / RTX) to CPU tokens per second will be roughly **`4x`**.
