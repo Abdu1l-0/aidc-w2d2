@@ -143,3 +143,41 @@ Built a unified GPU container image based on CUDA 12.4 runtime that dynamically 
 
 * **Speedup Ratio:**
   The ratio of GPU (T4 / RTX) to CPU tokens per second will be roughly **`4x`**.
+
+## W2D5: Docker Compose, Security, and Deployment
+
+### Overview
+Today's lab transitioned the FastAPI model-serving stack from manual `docker run` commands to a version-controlled, declarative deployment using Docker Compose. The endpoints were secured against unauthorized access, token clamping was implemented to prevent resource exhaustion, and the deployment was validated via an automated testing script.
+
+### Key Steps Completed
+* **Declarative Infrastructure:** Authored a `compose.yaml` file to define the container service, map ports, and inject environment variables from a `.env` file.
+* **Security Implementation (Authentication):** Updated `main.py` to enforce Bearer token API key validation on all `/v1/*` routes, intercepting unauthenticated requests with a `401 Unauthorized` response.
+* **Security Implementation (Token Clamping):** Added logic to dynamically limit requested `max_tokens` against a predefined `MAX_TOKENS_CEILING` environment variable, mitigating OWASP LLM10 vulnerabilities.
+* **Route Configurations:** Ensured the `/health` endpoint remains completely open for container orchestrator probes, while providing a secured `/v1/models` route for the verification script.
+* **Deployment & Verification:** Rebuilt the `cpu-v2` image, pushed it to the Docker Hub registry, executed a fresh pull via Compose, and passed all tests in `verify.sh` (`GREEN CHECK: PASS`).
+* **Version Control:** Successfully resolved a Git merge conflict in `main.py` to integrate upstream streaming logic with local security checks, committing the final code to the `w2d5` branch.
+
+### Deliverables
+* `compose.yaml`: The deployment configuration file.
+* `main.py`: The updated FastAPI service with integrated security and streaming.
+* `.env.example`: A template file outlining required environment variables (`MODEL_ID`, `API_KEY`, `MAX_TOKENS`).
+> *Note: The `.env` file containing the actual API key was intentionally excluded from version control.*
+
+---
+
+### W2D5 Prediction Card
+
+**Q: After `docker compose up -d`, how long until `docker compose ps` reports the service as healthy? (the healthcheck has a start period while the model loads).**
+> About ten seconds
+
+**Q: If you change `MODEL_ID` in `.env` and run `docker compose up -d` again, does compose recreate the container?**
+> Yes
+
+**Q: The healthcheck runs INSIDE the container. Does the base image have curl? (this decides which healthcheck form works).**
+> no
+
+**Q: Your service currently has no key. If you published this port to the internet right now, how long until someone else is generating tokens on your GPU? (hours / days / weeks). Write a number; you will be asked to defend it.**
+> hours, a lot of ai scrapers
+
+**Q: After you add a key in step 4, which endpoint must still answer WITHOUT one, and why?**
+> health
