@@ -162,6 +162,7 @@ Today's lab transitioned the FastAPI model-serving stack from manual `docker run
 * `main.py`: The updated FastAPI service with integrated security and streaming.
 * `.env.example`: A template file outlining required environment variables (`MODEL_ID`, `API_KEY`, `MAX_TOKENS`).
 > *Note: The `.env` file containing the actual API key was intentionally excluded from version control.*
+<img width="1581" height="498" alt="Screenshot 2026-08-27 152133" src="https://github.com/user-attachments/assets/7aa7a819-96df-430d-aa95-7ae05f3e56a1" />
 
 ---
 
